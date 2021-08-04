@@ -10,10 +10,6 @@ import math
 import matplotlib
 import numpy as np
 import pandas  as pd
-import seaborn as sns
-import time
-
-from datetime import date
 from matplotlib import pyplot as plt
 from pylab import rcParams
 from sklearn.metrics import mean_squared_error
@@ -21,10 +17,11 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 from xgboost import XGBRegressor
 
-test_size = 0.2                # proportion of dataset to be used as test set
-N = 3                          # for feature at day t, we use lags from t-1, t-2, ..., t-N as features
+test_size = 0.1  # proportion of dataset to be used as test set
+N = 3  # for feature at day t, we use lags from t-1, t-2, ..., t-N as features
 
 model_seed = 100
+
 
 def get_mape(y_true, y_pred):
     """
@@ -33,12 +30,12 @@ def get_mape(y_true, y_pred):
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
-def _load_data():
 
-    stk_path = "./VTI.csv"
+def _load_data():
+    stk_path = "./slw.csv"
     df = pd.read_csv(stk_path, sep=",")
-    # Convert Date column to datetime
-    df.loc[:, 'Date'] = pd.to_datetime(df['Date'], format='%Y-%m-%d')
+    # Convert time column to datetime
+    df.loc[:, 'time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S')
     # Change all column headings to be lower case, and remove spacing
     df.columns = [str(x).lower().replace(' ', '_') for x in df.columns]
     # Get month of each sample
@@ -48,8 +45,8 @@ def _load_data():
 
     return df
 
-def feature_engineer(df):
 
+def feature_engineer(df):
     df['range_hl'] = df['high'] - df['low']
     df['range_oc'] = df['open'] - df['close']
 
@@ -58,11 +55,11 @@ def feature_engineer(df):
 
     for col in lag_cols:
         for i in shift_range:
-
-            new_col='{}_lag_{}'.format(col, i)   # 格式化字符串
-            df[new_col]=df[col].shift(i)
+            new_col = '{}_lag_{}'.format(col, i)  # 格式化字符串
+            df[new_col] = df[col].shift(i)
 
     return df[N:]
+
 
 def scale_row(row, feat_mean, feat_std):
     """
@@ -80,6 +77,7 @@ def scale_row(row, feat_mean, feat_std):
     row_scaled = (row - feat_mean) / feat_std
 
     return row_scaled
+
 
 def get_mov_avg_std(df, col, N):
     """
@@ -105,13 +103,14 @@ def get_mov_avg_std(df, col, N):
 
     return df_out
 
+
 if __name__ == '__main__':
 
     # 第一步：获取数据
-    data_df=_load_data()
+    data_df = _load_data()
 
     # 第二步：特征工程
-    df=feature_engineer(data_df)
+    df = feature_engineer(data_df)
 
     # 第三步：数据标准化，先统一计算出标准化的数据，在对其进行数据切分。
     cols_list = [
@@ -122,7 +121,6 @@ if __name__ == '__main__':
     ]
     for col in cols_list:
         df = get_mov_avg_std(df, col, N)
-
 
     # 第四步：生成训练数据和测试数据。因训练数据和测试数据的标准化方式不同，因此需切分训练和测试数据。
     num_test = int(test_size * len(df))
@@ -140,7 +138,7 @@ if __name__ == '__main__':
         cols_to_scale.append("range_oc_lag_" + str(i))
         cols_to_scale.append("volume_lag_" + str(i))
 
-    scaler = StandardScaler() # 启示三：标准化也不应带测试集，以避免信息泄漏
+    scaler = StandardScaler()  # 启示三：标准化也不应带测试集，以避免信息泄漏
     train_scaled = scaler.fit_transform(train[cols_to_scale])
     # Convert the numpy array back into pandas dataframe
     train_scaled = pd.DataFrame(train_scaled, columns=cols_to_scale)
@@ -173,17 +171,18 @@ if __name__ == '__main__':
 
     # 第七步：开始训练
     from sklearn.model_selection import GridSearchCV
-    parameters={'n_estimators':[90],
-                'max_depth':[7],
-                'learning_rate': [0.3],
-                'min_child_weight':range(5, 21, 1),
-                #'subsample':[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
-                #'gamma':[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
-                #'colsample_bytree':[0.5, 0.6, 0.7, 0.8, 0.9, 1],
-                #'colsample_bylevel':[0.5, 0.6, 0.7, 0.8, 0.9, 1]
-                }
-    #parameters={'max_depth':range(2,10,1)}
-    model=XGBRegressor(seed=model_seed,
+
+    parameters = {'n_estimators': [90],
+                  'max_depth': [7],
+                  'learning_rate': [0.3],
+                  'min_child_weight': range(5, 21, 1),
+                  # 'subsample':[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+                  # 'gamma':[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+                  # 'colsample_bytree':[0.5, 0.6, 0.7, 0.8, 0.9, 1],
+                  # 'colsample_bylevel':[0.5, 0.6, 0.7, 0.8, 0.9, 1]
+                  }
+    # parameters={'max_depth':range(2,10,1)}
+    model = XGBRegressor(seed=model_seed,
                          n_estimators=100,
                          max_depth=3,
                          eval_metric='rmse',
@@ -193,30 +192,29 @@ if __name__ == '__main__':
                          colsample_bytree=1,
                          colsample_bylevel=1,
                          gamma=0)
-    gs=GridSearchCV(estimator= model,param_grid=parameters,cv=5,refit= True,scoring='neg_mean_squared_error')
+    gs = GridSearchCV(estimator=model, param_grid=parameters, cv=5, refit=True, scoring='neg_mean_squared_error')
 
-    gs.fit(X_train_scaled,y_train_scaled)
-    print ('最优参数: ' + str(gs.best_params_))
+    gs.fit(X_train_scaled, y_train_scaled)
+    print('最优参数: ' + str(gs.best_params_))
 
     est_scaled = gs.predict(X_train_scaled)
     train['est'] = est_scaled * math.sqrt(scaler.var_[0]) + scaler.mean_[0]
 
     pre_y_scaled = gs.predict(X_sample_scaled)
     test['pre_y_scaled'] = pre_y_scaled
-    test['pre_y']=test['pre_y_scaled'] * test['adj_close_std'] + test['adj_close_mean']
+    test['pre_y'] = test['pre_y_scaled'] * test['adj_close_std'] + test['adj_close_mean']
 
     plt.figure()
     ax = test.plot(x='date', y='adj_close', style='b-', grid=True)
     ax = test.plot(x='date', y='pre_y', style='r-', grid=True, ax=ax)
     plt.show()
 
-    rmse=math.sqrt(mean_squared_error(y_sample, test['pre_y']))
+    rmse = math.sqrt(mean_squared_error(y_sample, test['pre_y']))
     print("RMSE on dev set = %0.3f" % rmse)
     mape = get_mape(y_sample, test['pre_y'])
     print("MAPE on dev set = %0.3f%%" % mape)
 
     imp = list(zip(train[features], gs.best_estimator_.feature_importances_))
     imp.sort(key=lambda tup: tup[1])
-    for i in range(-1,-10,-1):
+    for i in range(-1, -10, -1):
         print(imp[i])
-
